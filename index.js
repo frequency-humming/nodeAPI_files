@@ -1,50 +1,25 @@
-/* eslint-disable */
 const express = require('express');
-const jsforce = require('jsforce');
-const app = express();
-const https = require('https');
 const fs = require('fs');
 const axios = require('axios');
 require('dotenv').config();
+const app = express();
+app.use(express.urlencoded({extended: true}));
 
-let token = '';
+let acctoken = '';
 const PORT = 3001;
-const { SF_LOGIN_URL, SF_USERNAME, SF_PASSWORD, SF_TOKEN } = process.env;
-const conn = new jsforce.Connection({
-    loginUrl: SF_LOGIN_URL
-});
+const { SF_LOGIN_URL, SF_USERNAME, SF_PASSWORD, SF_TOKEN,SF_INSTANCE,CONSUMER_KEY,CONSUMER_SECRET } = process.env;
 
-conn.login(SF_USERNAME, SF_PASSWORD + SF_TOKEN, (err, userInfo) => {
-    if (err) {
-        console.error(err);
-    } else {
-        console.log('User ID: ' + userInfo.id);
-        console.log('Org ID: ' + userInfo.organizationId);
-        token = conn.accessToken;
-        console.log('AccessToken ' + conn.accessToken);
-    }
-});
-app.get('/', (req, res) => {
-    conn.query(
-        'SELECT ID,Title, VersionData FROM CONTENTVERSION',
-        (err, result) => {
-            if (err) {
-                res.send(err);
-            } else {
-                //console.log(result.records);
-                let data = new Array();
-                for (x in result.records) {
-                    data.push({
-                        name: result.records[x].Title,
-                        URL: result.records[x].VersionData
-                    });
-                }
-                console.log(data[0].name);
-                files(data);
-                res.send('ok');
-            }
+app.post('/testingpattern',async (req, res) => {
+    let name = req.body.filename;
+    let url = req.body.url;
+    acctoken = await authReq();
+    if(acctoken){
+        let file = await download(name,url);
+        if(file){
+            console.log(file);
+            res.send(file);
         }
-    );
+    }
 });
 
 async function files(data) {
@@ -56,24 +31,53 @@ async function files(data) {
     let complete = await Promise.all(apiRequest);
 }
 
-function download(index) {
-    let FileName = index.name;
-    axios({
-        url: `https://resilient-bear-l245ow-dev-ed.my.salesforce.com${index.URL}`,
+async function download(name,url) {
+    let FileName = name;
+    return axios({
+        url: SF_INSTANCE+url,
         headers: {
             'Content-Type': 'application/octet-stream',
-            'Authorization': 'OAuth ' + token
+            'Authorization': 'Bearer ' + acctoken
         },
         responseType: 'stream'
       })
         .then(function (response) {
-          response.data.pipe(fs.createWriteStream(FileName));
+          response.data.pipe(fs.createWriteStream(`${__dirname}/documents/${FileName}`));
+        }).then(function(){
+            return 'Completed';
         })
         .catch(function (error) {
             console.log(error);
+            return 'Error';
         });
+}
+
+async function authReq() {
+    var data = {
+        'grant_type': 'password',
+        'client_id': CONSUMER_KEY,
+        'client_secret': CONSUMER_SECRET,
+        'username': SF_USERNAME,
+        'password': SF_PASSWORD+SF_TOKEN
+      };
+      var config = {
+        method: 'post',
+        url: SF_LOGIN_URL,
+        headers: { 
+            'Content-Type': 'application/x-www-form-urlencoded'
+        },
+        data : data
+      };
+      
+      const callout = await axios(config);
+      const calloutRequest = async () => {
+        await callout;
+      }
+      return callout.data.access_token;
 }
 
 app.listen(PORT, () => {
     console.log(`Server is running at http://localhost:${PORT}`);
 });
+
+
